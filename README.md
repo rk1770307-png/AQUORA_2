@@ -51,6 +51,7 @@ python app.py
 
 #### Vite Frontend
 ```powershell
+cd frontend
 npm run dev
 ```
 
