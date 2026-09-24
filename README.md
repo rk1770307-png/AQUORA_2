@@ -1,16 +1,69 @@
-# React + Vite
+# AQUORA — AI Automated Underwater Marine Debris & Sonar Anomaly System
+### Smart India Hackathon (SIH 2026) | Problem ID #26057 | MoES / NIOT
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+AQUORA is an intelligent deep-sea acoustic analytics and survey platform developed for the **Ministry of Earth Sciences (MoES)** and the **National Institute of Ocean Technology (NIOT)**. It processes dual-channel side-scan sonar imagery, detects underwater marine debris (ghost nets, subsea pipelines, cylinders, shipwrecks, aircraft debris), calculates acoustic shadow trigonometry for height estimations, and geotags anomalies on an interactive Leaflet ocean GIS map.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🗄️ MongoDB Database Integration
 
-## React Compiler
+AQUORA is configured with a persistent MongoDB database (`aquora_db`) storing:
+- **`surveys`**: Side-scan sonar survey missions, AUV metadata, bounding boxes, priority counts, and summaries.
+- **`anomalies`**: Granular detected hazards (ghost nets, pipelines, cylinders) with acoustic shadow lengths, derived heights, SNR, and GPS coordinates.
+- **`telemetry`**: AUV navigation logs (altitude, slant range, speed, heading, ping frequencies).
+- **`processing_logs`**: YOLOv8 + Acoustic CV pipeline execution audit logs.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Connecting with MongoDB Compass
+1. Launch **MongoDB Compass** on your PC.
+2. In the connection URI, enter:
+   ```text
+   mongodb://localhost:27017
+   ```
+3. Click **Connect**.
+4. In the left database navigation pane, select **`aquora_db`**.
+5. Explore the collections:
+   - `surveys`
+   - `anomalies`
+   - `telemetry`
+   - `processing_logs`
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 🚀 Running AQUORA
+
+### 1. One-Click Launch (Batch Script)
+Double-click `run.bat` or run:
+```cmd
+run.bat
+```
+This automatically starts:
+- **Backend API & MongoDB Sync:** `http://localhost:5000`
+- **Frontend Web UI:** `http://localhost:5173`
+
+### 2. Manual Launch
+
+#### Python Backend
+```powershell
+cd backend
+.venv\Scripts\activate
+python app.py
+```
+
+#### Vite Frontend
+```powershell
+npm run dev
+```
+
+### 3. Database Utility & Seed Script
+To re-seed or verify MongoDB status:
+```powershell
+backend\.venv\Scripts\python.exe backend\seed_data.py
+```
+
+---
+
+## 🛠️ Technology Stack
+- **AI / Acoustic Computer Vision**: YOLOv8 (`ultralytics`), OpenCV (`cv2`), SciPy, NumPy
+- **Backend**: Python 3.12, Flask, PyMongo 4.18, Flask-CORS
+- **Database**: MongoDB 8.3.7 Server + MongoDB Compass
+- **Frontend**: React 18, Vite, TypeScript, TailwindCSS, Lucide Icons, Leaflet GIS

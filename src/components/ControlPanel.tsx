@@ -4,14 +4,11 @@ import {
   Filter, 
   Sliders, 
   ShieldCheck, 
-  Layers, 
   Sparkles, 
-  Eye, 
   Palette, 
-  Activity,
   Check
 } from 'lucide-react';
-import { FilterSettings, HazardCategory } from '../types';
+import { FilterSettings, HazardCategory, getMaterialType, getMaterialStyle } from '../types';
 
 interface ControlPanelProps {
   settings: FilterSettings;
@@ -24,12 +21,14 @@ interface ControlPanelProps {
 }
 
 const CATEGORIES: HazardCategory[] = [
-  'Ghost Net',
-  'Subsea Pipe',
-  'Cylinder',
-  'Shipwreck',
-  'Aircraft Debris',
-  'Natural Rock Cluster'
+  'Iron / Metal Scrap',
+  'Plastic Marine Debris',
+  'Wet Debris (Ghost Net)',
+  'Subsea Pipe (Iron/Steel)',
+  'Shipwreck (Iron Hull)',
+  'Metallic Cylinder',
+  'Munitions / UXO',
+  'Seafloor Anomaly'
 ];
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -57,20 +56,20 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="flex items-center gap-2">
             <Cpu className="w-4 h-4 text-cyan-400" />
             <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-200">
-              AI Detection Architecture
+              Acoustic CV Architecture
             </h3>
           </div>
           <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30 font-semibold flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            YOLOv8 Active ({processingTimeMs}ms)
+            Acoustic CV Active ({processingTimeMs}ms)
           </span>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           {[
-            { id: 'yolov8-sonar', name: 'YOLOv8-Sonar', desc: 'Real-time BBoxes' },
-            { id: 'unet-sonar', name: 'U-Net SonarSeg', desc: 'Pixel Masks' },
-            { id: 'resnet-sss', name: 'ResNet-SSS', desc: 'Dual Highlight/Shadow' }
+            { id: 'aquora-acoustic-cv', name: 'Acoustic-CV', desc: 'Real-time Backscatter' },
+            { id: 'shadow-trig', name: 'Shadow-Trig', desc: 'Height & Depth Math' },
+            { id: 'material-spectral', name: 'Material-Physics', desc: 'Reflectance ID' }
           ].map(model => (
             <button
               key={model.id}
@@ -259,18 +258,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="flex flex-wrap gap-1.5">
           {CATEGORIES.map(cat => {
             const isSelected = settings.selectedCategories.includes(cat);
+            const mat = getMaterialType(cat);
+            const style = getMaterialStyle(mat);
             return (
               <button
                 key={cat}
                 onClick={() => toggleCategory(cat)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2 py-1 rounded-md text-[11px] font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 border ${
                   isSelected
-                    ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/50 shadow-sm'
-                    : 'bg-slate-900/60 text-slate-400 border border-slate-800 hover:text-slate-200'
+                    ? `${style.badgeBg} shadow-sm font-bold`
+                    : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200'
                 }`}
               >
-                {isSelected && <Check className="w-3 h-3 text-cyan-400" />}
-                {cat}
+                <span>{style.icon}</span>
+                {isSelected && <Check className="w-3 h-3" />}
+                <span>{cat}</span>
               </button>
             );
           })}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ShieldCheck, Waves, Cpu, Database, MapPin, FileCheck } from 'lucide-react';
+import { X, ShieldCheck, Waves, Cpu, MapPin, FileCheck } from 'lucide-react';
 
 interface MoESInfoModalProps {
   onClose: () => void;
@@ -53,10 +53,10 @@ export const MoESInfoModal: React.FC<MoESInfoModalProps> = ({ onClose }) => {
             <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5">
               <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs">
                 <Cpu className="w-4 h-4 text-cyan-400" />
-                1. AI Detection & Segmentation
+                1. Acoustic CV Detection & Segmentation
               </div>
               <p className="text-slate-400 text-[11px]">
-                YOLOv8-Sonar, U-Net, and ResNet architectures trained to detect and draw pixel-level masks around ghost nets, subsea pipes, cylinders, and shipwrecks.
+                High-precision acoustic computer vision, multi-threshold backscatter analysis, and shadow trigonometry to detect and draw pixel-level masks around ghost nets, subsea pipes, cylinders, and shipwrecks.
               </p>
             </div>
 

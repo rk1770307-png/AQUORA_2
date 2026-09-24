@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { SonarHazard, TelemetryData, PresetDataset } from '../types';
+import { SonarHazard, PresetDataset } from '../types';
 
 /**
  * Export anomalous detection report in JSON format

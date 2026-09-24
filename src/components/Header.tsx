@@ -1,17 +1,16 @@
 import { 
   Waves, 
-  Layers, 
-  Play, 
-  FileText, 
   HelpCircle, 
   Radio, 
   Upload, 
   ShieldAlert,
   Database,
-  History
+  History,
+  Server
 } from 'lucide-react';
 import { PresetDataset } from '../types';
 import { PRESET_DATASETS } from '../data/presetDatasets';
+import { MongoDbStatus } from '../utils/backendApi';
 
 interface HeaderProps {
   activeDataset: PresetDataset;
@@ -23,6 +22,7 @@ interface HeaderProps {
   onOpenInfo: () => void;
   totalHazards: number;
   criticalHazards: number;
+  dbStatus?: MongoDbStatus | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,7 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStream,
   onOpenInfo,
   totalHazards,
-  criticalHazards
+  criticalHazards,
+  dbStatus
 }) => {
 
   return (
@@ -64,8 +65,42 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Dataset Selector Dropdown & Custom Upload */}
+      {/* Dataset Selector Dropdown, Custom Upload & Status */}
       <div className="flex items-center gap-3">
+        {/* MongoDB Database Live Status Badge */}
+        {dbStatus && (
+          <div 
+            onClick={onOpenHistory}
+            title={
+              dbStatus.connected 
+                ? `MongoDB ONLINE (db: ${dbStatus.database})\nPort: ${dbStatus.port || 27017} | Surveys: ${dbStatus.counts?.surveys ?? 0} | Anomalies: ${dbStatus.counts?.anomalies ?? 0} | Latency: ${dbStatus.latency_ms ?? 0}ms\nClick to inspect in Survey History`
+                : `MongoDB OFFLINE\nError: ${dbStatus.error || 'Server not reachable'}`
+            }
+            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all ${
+              dbStatus.connected 
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50 shadow-[0_0_12px_rgba(16,185,129,0.15)]' 
+                : 'bg-rose-950/40 border-rose-500/40 text-rose-300 hover:bg-rose-900/50'
+            }`}
+          >
+            <div className="relative flex h-2 w-2">
+              {dbStatus.connected && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              )}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${dbStatus.connected ? 'bg-emerald-400' : 'bg-rose-500'}`}></span>
+            </div>
+            <Server className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="font-mono text-[11px] font-semibold tracking-wide">
+              {dbStatus.connected ? 'MongoDB: Connected' : 'MongoDB: Offline'}
+            </span>
+            {dbStatus.connected && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-900/60 border border-emerald-500/30 rounded text-emerald-200">
+                {dbStatus.database || 'AQUORA_Project'}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Dataset selector */}
         <div className="flex items-center gap-2 bg-slate-900/90 border border-cyan-500/30 rounded-lg px-3 py-1.5">
           <Database className="w-4 h-4 text-cyan-400" />
           <select 

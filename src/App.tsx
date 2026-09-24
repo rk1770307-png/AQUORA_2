@@ -11,15 +11,15 @@ import { SurveyHistoryModal } from './components/SurveyHistoryModal';
 import { PRESET_DATASETS } from './data/presetDatasets';
 import { FilterSettings, PresetDataset, SonarHazard, SurveyRecord } from './types';
 import { processSonarDetections } from './utils/sonarFilterEngine';
-import { BackendProcessResponse } from './utils/backendApi';
-import { getSurveyHistory, saveSurvey, compressImageFileToDataUrl } from './utils/surveyStorage';
+import { BackendProcessResponse, getMongoDbStatus, MongoDbStatus } from './utils/backendApi';
+import { getSurveyHistory, saveSurvey, compressImageFileToDataUrl, syncSurveysWithDb } from './utils/surveyStorage';
 
 export function App() {
   const [activeDataset, setActiveDataset] = useState<PresetDataset>(PRESET_DATASETS[0]);
   const [customImageFile, setCustomImageFile] = useState<File | null>(null);
   const [backendHazards, setBackendHazards] = useState<SonarHazard[] | null>(null);
   const [selectedHazardId, setSelectedHazardId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>('yolov8-sonar');
+  const [selectedModel, setSelectedModel] = useState<string>('aquora-acoustic-cv');
 
   // Modals
   const [isStreamModalOpen, setIsStreamModalOpen] = useState<boolean>(false);
@@ -27,16 +27,48 @@ export function App() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
 
-  // Survey History State (Vercel-compatible persistent storage, zero mock data)
-  const [surveyHistory, setSurveyHistory] = useState<SurveyRecord[]>([]);
+  // Survey History State (MongoDB persistent storage + local cache)
+  const [surveyHistory, setSurveyHistory] = useState<SurveyRecord[]>(() => getSurveyHistory());
+  const [dbStatus, setDbStatus] = useState<MongoDbStatus | null>(null);
 
   useEffect(() => {
-    // Load existing history on initial mount
-    setSurveyHistory(getSurveyHistory());
+    // 1. Query MongoDB status and sync records
+    const syncDb = async () => {
+      try {
+        const status = await getMongoDbStatus();
+        setDbStatus(status);
+        const synced = await syncSurveysWithDb();
+        if (synced && synced.length > 0) {
+          setSurveyHistory(synced);
+        }
+      } catch (err) {
+        console.warn('Initial MongoDB sync warning:', err);
+      }
+    };
+    syncDb();
+
+    // 3. Heartbeat polling for live database connection status
+    const timer = setInterval(async () => {
+      try {
+        const status = await getMongoDbStatus();
+        setDbStatus(status);
+      } catch {
+        // quiet
+      }
+    }, 15000);
+
+    return () => clearInterval(timer);
   }, []);
 
-  const refreshSurveyHistory = () => {
-    setSurveyHistory(getSurveyHistory());
+  const refreshSurveyHistory = async () => {
+    try {
+      const status = await getMongoDbStatus();
+      setDbStatus(status);
+      const synced = await syncSurveysWithDb();
+      setSurveyHistory(synced);
+    } catch {
+      setSurveyHistory(getSurveyHistory());
+    }
   };
 
   // Default Filter & Pre-processing Settings
@@ -47,7 +79,7 @@ export function App() {
     claheClipLimit: 2.0,
     heaveCompensation: true,
     shadowVerification: true,
-    minConfidence: 60,
+    minConfidence: 40,
     colorMap: 'copper',
     showSegmentationMasks: true,
     showBoundingBoxes: true,
@@ -97,6 +129,7 @@ export function App() {
 
     // Automatically save every actual processed sonar survey to persistent history
     saveSurvey({
+      id: response.saved_survey_id,
       surveyArea: resolvedArea,
       location: syntheticDataset.location,
       pingFrequencyKhz: meta.pingFrequencyKhz,
@@ -156,7 +189,7 @@ export function App() {
   };
 
   const handleSelectHazard = (hazard: SonarHazard) => {
-    setSelectedHazardId(hazard.id);
+    setSelectedHazardId(prev => prev === hazard.id ? null : hazard.id);
   };
 
   const criticalCount = useMemo(() => {
@@ -176,6 +209,7 @@ export function App() {
         onOpenInfo={() => setIsInfoModalOpen(true)}
         totalHazards={detectionResult.hazards.length}
         criticalHazards={criticalCount}
+        dbStatus={dbStatus}
       />
 
       {/* Main Dashboard Layout Grid */}
@@ -203,6 +237,7 @@ export function App() {
                 dataset={activeDataset}
                 hazards={detectionResult.hazards}
                 filterSettings={filterSettings}
+                onChangeFilterSettings={setFilterSettings}
                 customImageFile={customImageFile}
                 onSelectHazard={handleSelectHazard}
                 selectedHazardId={selectedHazardId}
@@ -247,6 +282,7 @@ export function App() {
         onRefreshSurveys={refreshSurveyHistory}
         onLoadSurveyToDashboard={handleLoadSurveyToDashboard}
         onOpenUploadModal={() => setIsUploadModalOpen(true)}
+        dbStatus={dbStatus}
       />
 
       {/* Live AUV Sweep Stream Simulator Modal */}
@@ -254,6 +290,9 @@ export function App() {
         <StreamSimulatorModal
           dataset={activeDataset}
           onClose={() => setIsStreamModalOpen(false)}
+          onAddAnomaly={(newAnomaly) => {
+            setBackendHazards(prev => prev ? [newAnomaly, ...prev] : [newAnomaly, ...activeDataset.hazards]);
+          }}
         />
       )}
 
@@ -267,4 +306,59 @@ export function App() {
   );
 }
 
-export default App;
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("AQUORA Component Error Boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-[#060B14] flex items-center justify-center p-6 text-slate-100 font-mono">
+          <div className="max-w-md w-full bg-slate-900 border border-red-500/50 p-6 rounded-2xl shadow-2xl space-y-4">
+            <h2 className="text-base font-bold text-red-400 uppercase tracking-wider">AQUORA UI Recovery</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {this.state.error?.message || 'A visual error occurred while rendering the dashboard.'}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              className="w-full py-2 bg-cyan-500 text-slate-950 font-bold rounded-lg hover:bg-cyan-400 transition-colors cursor-pointer"
+            >
+              Reload Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function RootApp() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

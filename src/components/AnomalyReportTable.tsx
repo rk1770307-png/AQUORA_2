@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { 
   FileText, 
-  Download, 
   Search, 
   FileSpreadsheet, 
   Map, 
   FileJson, 
-  ShieldAlert, 
   ArrowUpDown,
   ExternalLink
 } from 'lucide-react';
-import { SonarHazard, PresetDataset } from '../types';
+import { SonarHazard, PresetDataset, getMaterialType, getMaterialStyle } from '../types';
 import { exportToJSON, exportToCSV, exportToGeoJSON, exportToPDF } from '../utils/reportGenerator';
 
 interface AnomalyReportTableProps {
@@ -144,6 +142,8 @@ export const AnomalyReportTable: React.FC<AnomalyReportTableProps> = ({
                 const isSelected = hazard.id === selectedHazardId;
                 const isCritical = hazard.severity === 'CRITICAL';
                 const isHigh = hazard.severity === 'HIGH';
+                const mat = hazard.materialType || getMaterialType(hazard.category);
+                const style = getMaterialStyle(mat);
 
                 return (
                   <tr
@@ -161,9 +161,13 @@ export const AnomalyReportTable: React.FC<AnomalyReportTableProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 flex items-center gap-1.5">
-                      <span>{hazard.category === 'Ghost Net' ? '🕸️' : hazard.category === 'Shipwreck' ? '⚓' : hazard.category === 'Subsea Pipe' ? '🛢️' : '📦'}</span>
-                      <span>{hazard.category}</span>
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${style.badgeBg}`}>
+                          {style.icon} {mat.toUpperCase()}
+                        </span>
+                        <span className="font-semibold text-slate-200">{hazard.category}</span>
+                      </div>
                     </td>
                     <td className="py-2.5 px-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${

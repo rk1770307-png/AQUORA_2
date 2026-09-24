@@ -1,4 +1,4 @@
-import { SonarHazard, FilterSettings, DetectionResult } from '../types';
+import { SonarHazard, FilterSettings, DetectionResult, getMaterialType } from '../types';
 
 /**
  * Filter hazards based on noise settings, acoustic shadow verification,
@@ -15,11 +15,13 @@ export function processSonarDetections(
 
   const processedHazards = rawHazards.map(hazard => {
     let conf = hazard.confidence;
-    totalSnr += hazard.snrDb;
+    totalSnr += hazard.snrDb || 12.0;
+
+    // Ensure materialType is assigned
+    const materialType = hazard.materialType || getMaterialType(hazard.category);
 
     // 1. Speckle Noise Reduction Impact
     if (settings.speckleFilter !== 'none') {
-      // Noise filter increases Signal-to-Noise Ratio (SNR) boost
       const snrBoost = settings.speckleFilter === 'lee' ? 4.5 : 3.0;
       conf = Math.min(99.9, conf + snrBoost);
     }
@@ -29,15 +31,16 @@ export function processSonarDetections(
       conf = Math.min(99.9, conf + 2.5);
     }
 
-    // 3. Dual-Verification Shadow Filter (Eliminate Natural Rock Clusters)
+    // 3. Dual-Verification Shadow Filter (Targeted for Natural Rock Clusters)
     let isFalsePositive = false;
     if (settings.shadowVerification) {
-      // Natural rocks typically lack clean shadow-highlight alignment
       const combinedScore = (hazard.acousticHighlightScore + hazard.shadowMatchScore) / 2;
-      
-      if (hazard.category === 'Natural Rock Cluster' || combinedScore < 0.6) {
+      if (hazard.category === 'Natural Rock Cluster') {
         isFalsePositive = true;
-        conf = Math.max(15.0, conf - 35.0); // Severely demote rock false positives
+        conf = Math.max(15.0, conf - 30.0);
+      } else if (combinedScore < 0.4) {
+        isFalsePositive = true;
+        conf = Math.max(20.0, conf - 15.0);
       }
     }
 
@@ -48,6 +51,7 @@ export function processSonarDetections(
 
     return {
       ...hazard,
+      materialType,
       confidence: parseFloat(conf.toFixed(1)),
       isFalsePositiveFiltered: isFalsePositive
     };

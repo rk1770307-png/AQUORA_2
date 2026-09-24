@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { SonarHazard, PresetDataset } from '../types';
+import { SonarHazard, PresetDataset, getMaterialType, getMaterialStyle } from '../types';
 import { MapPin, Navigation } from 'lucide-react';
 
 interface MapDashboardProps {
@@ -25,13 +25,8 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    const mapCenter: [number, number] = [
-      (dataset.metadata.startLat + dataset.metadata.endLat) / 2,
-      (dataset.metadata.startLng + dataset.metadata.endLng) / 2
-    ];
-
     const map = L.map(mapContainerRef.current, {
-      center: mapCenter,
+      center: [13.1, 80.38],
       zoom: 13,
       zoomControl: true
     });
@@ -90,40 +85,33 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
     // Add Hazard Pins
     hazards.forEach(h => {
       const isSelected = h.id === selectedHazardId;
-      const isCritical = h.severity === 'CRITICAL';
-      const isHigh = h.severity === 'HIGH';
-
-      const color = isSelected 
-        ? '#00E5FF' 
-        : isCritical 
-        ? '#FF4757' 
-        : isHigh 
-        ? '#FFB300' 
-        : '#00FF9D';
+      const mat = h.materialType || getMaterialType(h.category);
+      const style = getMaterialStyle(mat);
+      const color = isSelected ? '#00E5FF' : style.accentColor;
 
       const html = `
         <div style="
-          width: ${isSelected ? '26px' : '20px'};
-          height: ${isSelected ? '26px' : '20px'};
+          width: ${isSelected ? '28px' : '22px'};
+          height: ${isSelected ? '28px' : '22px'};
           background-color: ${color};
           border: 2px solid #060B14;
           border-radius: 50%;
-          box-shadow: 0 0 12px ${color};
+          box-shadow: 0 0 14px ${color};
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 10px;
+          font-size: 11px;
           cursor: pointer;
         ">
-          ${h.category === 'Ghost Net' ? '🕸️' : h.category === 'Shipwreck' ? '⚓' : h.category === 'Subsea Pipe' ? '🛢️' : '⚠️'}
+          ${style.icon}
         </div>
       `;
 
       const customIcon = L.divIcon({
         html,
         className: 'custom-sonar-marker',
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
       });
 
       const marker = L.marker([h.latitude, h.longitude], { icon: customIcon });
@@ -131,10 +119,11 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
       const popupContent = `
         <div style="font-family: monospace; font-size: 11px; color: #F1F5F9; padding: 4px;">
           <div style="display:flex; justify-content:space-between; border-bottom:1px solid #334155; padding-bottom:4px; margin-bottom:4px;">
-            <strong style="color:#00E5FF;">${h.id}</strong>
+            <strong style="color:${style.accentColor};">${h.id}</strong>
             <span style="background:#092e38; color:#00E5FF; padding:1px 5px; border-radius:3px; font-weight:bold;">${h.confidence}% CONF</span>
           </div>
-          <div><strong>Type:</strong> ${h.category}</div>
+          <div><strong>Material:</strong> ${style.icon} ${mat.toUpperCase()}</div>
+          <div><strong>Classification:</strong> ${h.category}</div>
           <div><strong>Coordinates:</strong> ${h.latitude.toFixed(5)}N, ${h.longitude.toFixed(5)}E</div>
           <div><strong>Depth:</strong> ${h.depthMeters}m</div>
           <div><strong>Est Size:</strong> ${h.estimatedLengthM}m × ${h.estimatedWidthM}m</div>
@@ -177,18 +166,22 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
 
         {/* Legend */}
         <div className="absolute bottom-3 left-3 z-[1000] bg-slate-950/90 border border-slate-800 p-2.5 rounded-lg text-[11px] font-mono text-slate-300 flex flex-col gap-1 shadow-lg">
-          <div className="font-bold text-cyan-400 mb-0.5 text-[10px] uppercase">Hazard Legend</div>
+          <div className="font-bold text-cyan-400 mb-0.5 text-[10px] uppercase">Acoustic Material Legend</div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_#FF4757]"></span>
-            <span>Critical Ghost Net / Hazard</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]"></span>
+            <span>🧲 Iron / Metal Scrap & Pipes</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-            <span>High Risk Industrial Debris</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#06b6d4]"></span>
+            <span>🧴 Plastic Marine Debris</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-            <span>Subsea Pipe / Structural Anomaly</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]"></span>
+            <span>🕸️ Wet Debris & Ghost Nets</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-[0_0_6px_#a855f7]"></span>
+            <span>⚠️ Seafloor Anomalies</span>
           </div>
         </div>
       </div>

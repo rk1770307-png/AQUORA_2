@@ -1,4 +1,5 @@
 import { SurveyRecord, SonarHazard, PriorityCounts, SurveyPriority } from '../types';
+import { fetchSurveysFromDb, saveSurveyToDb, deleteSurveyFromDb, clearAllSurveysFromDb } from './backendApi';
 
 const STORAGE_KEY = 'aquora_survey_history_v1';
 
@@ -65,7 +66,7 @@ export function generateSurveyId(): string {
 }
 
 /**
- * Compresses an image file to a lightweight Base64 data URL for Vercel/localStorage persistence
+ * Compresses an image file to a lightweight Base64 data URL for persistence
  */
 export async function compressImageFileToDataUrl(file: File, maxDim: number = 400): Promise<string> {
   return new Promise((resolve) => {
@@ -105,8 +106,7 @@ export async function compressImageFileToDataUrl(file: File, maxDim: number = 40
 }
 
 /**
- * Retrieves all stored surveys from localStorage.
- * Guaranteed zero mock data: starts completely empty.
+ * Retrieves cached surveys from localStorage for immediate render.
  */
 export function getSurveyHistory(): SurveyRecord[] {
   try {
@@ -124,8 +124,29 @@ export function getSurveyHistory(): SurveyRecord[] {
 }
 
 /**
- * Saves a real processed survey into localStorage.
- * Thread-safe with quota management.
+ * Synchronize surveys with MongoDB database.
+ * Pulls latest surveys from MongoDB 'aquora_db', updates local cache, and returns them.
+ */
+export async function syncSurveysWithDb(): Promise<SurveyRecord[]> {
+  try {
+    const dbSurveys = await fetchSurveysFromDb();
+    if (Array.isArray(dbSurveys) && dbSurveys.length > 0) {
+      // Save into localStorage cache
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(dbSurveys.slice(0, 50)));
+      } catch (quotaErr) {
+        console.warn('Storage quota reached while syncing with MongoDB:', quotaErr);
+      }
+      return dbSurveys;
+    }
+  } catch (err) {
+    console.warn('Could not sync surveys with MongoDB, using cached surveys:', err);
+  }
+  return getSurveyHistory();
+}
+
+/**
+ * Saves a real processed survey into MongoDB and localStorage cache.
  */
 export function saveSurvey(
   surveyData: Omit<SurveyRecord, 'id' | 'timestamp' | 'formattedDate' | 'totalDetections' | 'priorityCounts'> & {
@@ -157,14 +178,13 @@ export function saveSurvey(
     hazards
   };
 
+  // 1. Update localStorage cache immediately
   try {
     const current = getSurveyHistory();
-    // Prepend new survey at the front (newest first)
     const updated = [record, ...current.filter(s => s.id !== id)].slice(0, 50);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch (err: any) {
-    // If storage is full, strip thumbnail or remove oldest item and retry
-    console.warn('localStorage quota reached while saving survey, stripping thumbnails...', err);
+    console.warn('localStorage quota reached, saving lightweight version...', err);
     try {
       const current = getSurveyHistory();
       const lightweight = [
@@ -176,6 +196,11 @@ export function saveSurvey(
       console.error('Unable to save survey even after pruning:', e);
     }
   }
+
+  // 2. Persist to MongoDB backend in background
+  saveSurveyToDb(record).catch(dbErr => {
+    console.warn('[AQUORA] MongoDB background sync warning:', dbErr);
+  });
 
   return record;
 }
@@ -189,13 +214,19 @@ export function getSurveyById(id: string): SurveyRecord | null {
 }
 
 /**
- * Deletes a survey from history
+ * Deletes a survey from history in both localStorage and MongoDB
  */
 export function deleteSurvey(id: string): boolean {
   try {
     const current = getSurveyHistory();
     const updated = current.filter(s => s.id !== id);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    // Delete from MongoDB
+    deleteSurveyFromDb(id).catch(err => {
+      console.warn('Could not delete from MongoDB:', err);
+    });
+
     return true;
   } catch (err) {
     console.error('Failed to delete survey:', err);
@@ -204,11 +235,14 @@ export function deleteSurvey(id: string): boolean {
 }
 
 /**
- * Clears all survey history
+ * Clears all survey history from localStorage and MongoDB
  */
 export function clearAllSurveys(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    clearAllSurveysFromDb().catch(err => {
+      console.warn('Could not clear MongoDB surveys:', err);
+    });
   } catch (err) {
     console.error('Failed to clear survey history:', err);
   }

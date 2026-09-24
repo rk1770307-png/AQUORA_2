@@ -3,29 +3,24 @@ import {
   X, 
   Search, 
   Calendar, 
-  Filter, 
   MapPin, 
-  Radio, 
-  Compass, 
   ShieldAlert, 
-  AlertTriangle, 
-  Info, 
-  CheckCircle, 
   ChevronRight, 
   ArrowLeft, 
   Trash2, 
-  Download, 
   ExternalLink, 
   Layers, 
-  Waves,
-  Eye,
-  Clock,
-  Sparkles
+  Waves, 
+  Clock, 
+  Sparkles, 
+  Database, 
+  RefreshCw 
 } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { SurveyRecord, SonarHazard, SurveyPriority, HazardCategory } from '../types';
+import { SurveyRecord, HazardCategory } from '../types';
 import { getHazardPriority, deleteSurvey, clearAllSurveys, filterSurveys } from '../utils/surveyStorage';
+import { MongoDbStatus, deleteSurveyFromDb, clearAllSurveysFromDb, resetDatabase } from '../utils/backendApi';
 
 interface SurveyHistoryModalProps {
   isOpen: boolean;
@@ -34,6 +29,7 @@ interface SurveyHistoryModalProps {
   onRefreshSurveys: () => void;
   onLoadSurveyToDashboard: (survey: SurveyRecord) => void;
   onOpenUploadModal: () => void;
+  dbStatus?: MongoDbStatus | null;
 }
 
 const HAZARD_CATEGORIES: HazardCategory[] = [
@@ -52,7 +48,8 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
   surveys,
   onRefreshSurveys,
   onLoadSurveyToDashboard,
-  onOpenUploadModal
+  onOpenUploadModal,
+  dbStatus
 }) => {
   // Navigation: null = list view, SurveyRecord = detailed inspection view
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyRecord | null>(null);
@@ -73,13 +70,7 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersGroupRef = useRef<L.LayerGroup | null>(null);
 
-  // Reset detail view when closing modal
-  useEffect(() => {
-    if (!isOpen) {
-      setSelectedSurvey(null);
-      setSelectedHazardId(null);
-    }
-  }, [isOpen]);
+
 
   // Filtered surveys list
   const filteredSurveys = useMemo(() => {
@@ -208,10 +199,11 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (window.confirm('Are you sure you want to delete this survey from history?')) {
+    if (window.confirm(`Delete survey ${id} from MongoDB database?`)) {
       deleteSurvey(id);
+      await deleteSurveyFromDb(id).catch(err => console.warn('MongoDB delete warning:', err));
       onRefreshSurveys();
       if (selectedSurvey?.id === id) {
         setSelectedSurvey(null);
@@ -219,9 +211,18 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
     }
   };
 
-  const handleClearAll = () => {
-    if (window.confirm('Are you sure you want to clear all survey history records?')) {
+  const handleClearAll = async () => {
+    if (window.confirm('Clear ALL survey records and anomalies from MongoDB?')) {
       clearAllSurveys();
+      await clearAllSurveysFromDb().catch(err => console.warn('MongoDB clear warning:', err));
+      onRefreshSurveys();
+      setSelectedSurvey(null);
+    }
+  };
+
+  const handleResetDefaults = async () => {
+    if (window.confirm('Reset database to MoES/NIOT deep-sea sonar benchmark missions?')) {
+      await resetDatabase().catch(err => console.warn('MongoDB reset warning:', err));
       onRefreshSurveys();
       setSelectedSurvey(null);
     }
@@ -232,9 +233,15 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
     setSelectedHazardId(null);
   };
 
+  const handleClose = () => {
+    setSelectedSurvey(null);
+    setSelectedHazardId(null);
+    onClose();
+  };
+
   const handleLoadAndClose = (survey: SurveyRecord) => {
     onLoadSurveyToDashboard(survey);
-    onClose();
+    handleClose();
   };
 
   const resetFilters = () => {
@@ -287,12 +294,42 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
             </div>
           </div>
 
-          <button 
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {dbStatus && (
+              <div 
+                title={`MongoDB Status: ${dbStatus.status} | DB: ${dbStatus.database || 'aquora_db'} | Surveys in DB: ${dbStatus.counts?.surveys ?? surveys.length}`}
+                className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono ${
+                  dbStatus.connected
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{dbStatus.connected ? `DB: ${dbStatus.database}` : 'MongoDB Offline'}</span>
+                {dbStatus.connected && (
+                  <span className="text-[10px] bg-emerald-900/60 px-1 py-0.2 rounded text-emerald-200">
+                    {dbStatus.counts?.surveys ?? surveys.length} in DB
+                  </span>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={onRefreshSurveys}
+              title="Sync with MongoDB"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-cyan-500/40 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sync</span>
+            </button>
+
+            <button 
+              onClick={handleClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -378,11 +415,18 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
                       <button
                         onClick={handleClearAll}
                         className="text-red-400/90 hover:text-red-300 text-xs font-semibold flex items-center gap-1 hover:underline cursor-pointer"
-                        title="Delete all survey history"
+                        title="Delete all survey history from MongoDB"
                       >
                         <Trash2 className="w-3 h-3" /> Clear History
                       </button>
                     )}
+                    <button
+                      onClick={handleResetDefaults}
+                      className="text-emerald-400/90 hover:text-emerald-300 text-xs font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                      title="Reset MongoDB to default NIOT acoustic missions"
+                    >
+                      <Sparkles className="w-3 h-3" /> Reset Defaults
+                    </button>
                   </div>
                 </div>
               </div>
@@ -394,20 +438,28 @@ export const SurveyHistoryModal: React.FC<SurveyHistoryModalProps> = ({
                     <Waves className="w-8 h-8 opacity-60" />
                   </div>
                   <div className="max-w-md">
-                    <h3 className="text-base font-bold text-slate-200">No Surveys Recorded Yet</h3>
+                    <h3 className="text-base font-bold text-slate-200">No Surveys Recorded in MongoDB</h3>
                     <p className="text-xs text-slate-400 mt-1">
-                      AQUORA maintains a strictly authentic mission log with zero mock data. Once you upload and process your first side-scan sonar image, it will be automatically recorded here.
+                      AQUORA maintains a persistent MongoDB mission log. You can upload a new side-scan sonar image or load NIOT deep-sea benchmark survey datasets.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenUploadModal();
-                    }}
-                    className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 rounded-xl shadow-[0_0_20px_rgba(0,229,255,0.3)] transition-all cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4" /> Upload & Process Sonar Survey
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenUploadModal();
+                      }}
+                      className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 rounded-xl shadow-[0_0_20px_rgba(0,229,255,0.3)] transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4" /> Upload & Process Sonar Survey
+                    </button>
+                    <button
+                      onClick={handleResetDefaults}
+                      className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-500/40 rounded-xl transition-all cursor-pointer"
+                    >
+                      <Database className="w-4 h-4" /> Seed NIOT Benchmark Surveys
+                    </button>
+                  </div>
                 </div>
               ) : filteredSurveys.length === 0 ? (
                 <div className="p-8 text-center rounded-xl border border-slate-800 bg-slate-950/40 text-slate-400 text-xs">
