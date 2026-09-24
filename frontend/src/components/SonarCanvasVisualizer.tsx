@@ -120,31 +120,146 @@ export const SonarCanvasVisualizer: React.FC<SonarCanvasVisualizerProps> = ({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeBeamHazardRef = useRef<SonarHazard | null>(null);
 
-  const playSonarChime = useCallback((freq: number = 880) => {
+  // Proactively unlock browser audio on any user gesture
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        if (!audioCtxRef.current) {
+          const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtxClass) {
+            audioCtxRef.current = new AudioCtxClass();
+          }
+        }
+        if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume().catch(() => {});
+        }
+      } catch {
+        // Ignored
+      }
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
+  const getAudioContext = useCallback((): AudioContext | null => {
+    try {
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtxClass) {
+          audioCtxRef.current = new AudioCtxClass();
+        }
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+      return audioCtxRef.current;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const playSonarChime = useCallback((freqOrType: number | 'critical' | 'debris' | 'pipe' | 'net' | 'all-detected' = 880) => {
     if (!soundEnabled) return;
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioCtxRef.current;
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      const trigger = () => {
+        const now = ctx.currentTime;
+
+        // Celebratory melodic harmonic chime when ALL debris are detected
+        if (freqOrType === 'all-detected') {
+          const chords = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+          chords.forEach((note, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(note, now + i * 0.08);
+            gain.gain.setValueAtTime(0.001, now + i * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.25, now + i * 0.08 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.08);
+            osc.stop(now + i * 0.08 + 0.36);
+          });
+          return;
+        }
+
+        let baseFreq = 880;
+        let oscType: OscillatorType = 'sine';
+        let sweepRatio = 1.35;
+        let duration = 0.16;
+        let volume = 0.24;
+
+        if (typeof freqOrType === 'number') {
+          baseFreq = freqOrType;
+          if (baseFreq >= 950) {
+            oscType = 'triangle';
+            volume = 0.28;
+          }
+        } else if (freqOrType === 'critical') {
+          baseFreq = 1050;
+          oscType = 'sawtooth';
+          sweepRatio = 1.55;
+          volume = 0.26;
+          duration = 0.22;
+        } else if (freqOrType === 'net') {
+          baseFreq = 840;
+          oscType = 'sine';
+          sweepRatio = 1.4;
+          volume = 0.22;
+        } else if (freqOrType === 'pipe') {
+          baseFreq = 640;
+          oscType = 'triangle';
+          sweepRatio = 1.25;
+          volume = 0.25;
+        }
+
+        // Primary acoustic tone
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = oscType;
+        osc.frequency.setValueAtTime(baseFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * sweepRatio, now + duration * 0.55);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(volume, now + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+
+        // Acoustic sub-harmonic resonance (gives realistic ocean sonar depth)
+        const subOsc = ctx.createOscillator();
+        const subGain = ctx.createGain();
+        subOsc.type = 'sine';
+        subOsc.frequency.setValueAtTime(baseFreq * 0.5, now);
+        subGain.gain.setValueAtTime(0.001, now);
+        subGain.gain.exponentialRampToValueAtTime(volume * 0.4, now + 0.02);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.85);
+
+        subOsc.connect(subGain);
+        subGain.connect(ctx.destination);
+        subOsc.start(now);
+        subOsc.stop(now + duration * 0.85 + 0.02);
+      };
+
       if (ctx.state === 'suspended') {
-        ctx.resume();
+        ctx.resume().then(trigger).catch(() => {});
+      } else {
+        trigger();
       }
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.22);
     } catch {
-      // Audio context might be restricted before user gesture
+      // Audio context fallback
     }
-  }, [soundEnabled]);
+  }, [soundEnabled, getAudioContext]);
 
   // Filter hazards by active tab
   const displayedHazards = useMemo(() => {
@@ -407,27 +522,59 @@ export const SonarCanvasVisualizer: React.FC<SonarCanvasVisualizerProps> = ({
 
     let animId: number;
     let currentY = 0;
+    let lastY = 0;
+    const sweptHazardIds = new Set<string>();
+    let allDetectedSoundPlayed = false;
 
     const animateSweep = () => {
       currentY = (currentY + 0.35) % 100;
       setSweepProgressPct(currentY);
 
-      // Check collision with any hazards
-      const hit = displayedHazards.find(h => {
+      // When sweep cycle loops back to top, reset the swept tracker
+      if (currentY < lastY) {
+        sweptHazardIds.clear();
+        allDetectedSoundPlayed = false;
+      }
+      lastY = currentY;
+
+      // Check collision with ALL hazards whose vertical bbox intersects the beam
+      const intersectingHazards = displayedHazards.filter(h => {
         const top = h.bbox.y;
         const bottom = h.bbox.y + h.bbox.height;
         return currentY >= top && currentY <= bottom;
       });
 
-      if (hit) {
-        if (!activeBeamHazardRef.current || activeBeamHazardRef.current.id !== hit.id) {
-          playSonarChime(hit.severity === 'CRITICAL' ? 980 : 780);
+      // Find which hazards have newly been reached and not sounded yet in this pass
+      const newlyHit = intersectingHazards.filter(h => !sweptHazardIds.has(h.id));
+
+      if (newlyHit.length > 0) {
+        newlyHit.forEach((hazard, idx) => {
+          sweptHazardIds.add(hazard.id);
+          setTimeout(() => {
+            const tone = hazard.severity === 'CRITICAL' ? 'critical' :
+                         hazard.category.toLowerCase().includes('net') ? 'net' :
+                         hazard.category.toLowerCase().includes('pipe') ? 'pipe' : 'debris';
+            playSonarChime(tone);
+          }, idx * 65);
+        });
+
+        const latestHit = newlyHit[0];
+        activeBeamHazardRef.current = latestHit;
+        setActiveBeamHazard(latestHit);
+
+        // Check if ALL displayed hazards have now been detected in this pass
+        if (
+          !allDetectedSoundPlayed &&
+          displayedHazards.length > 0 &&
+          sweptHazardIds.size >= displayedHazards.length
+        ) {
+          allDetectedSoundPlayed = true;
+          setTimeout(() => {
+            playSonarChime('all-detected');
+          }, newlyHit.length * 65 + 180);
         }
-        activeBeamHazardRef.current = hit;
-        setActiveBeamHazard(hit);
-      } else {
-        // Clear previous beam contact only when starting a brand new sweep cycle from the top
-        if (currentY < 0.8 && activeBeamHazardRef.current) {
+      } else if (intersectingHazards.length === 0) {
+        if (activeBeamHazardRef.current) {
           activeBeamHazardRef.current = null;
           setActiveBeamHazard(null);
         }
@@ -448,6 +595,7 @@ export const SonarCanvasVisualizer: React.FC<SonarCanvasVisualizerProps> = ({
     setScannedHazardsCount(0);
     playSonarChime(520);
 
+    const scannedIds = new Set<string>();
     let progress = 0;
     const interval = setInterval(() => {
       progress += 2.5;
@@ -457,19 +605,27 @@ export const SonarCanvasVisualizer: React.FC<SonarCanvasVisualizerProps> = ({
       const detectedSoFar = displayedHazards.filter(h => h.bbox.y <= progress);
       setScannedHazardsCount(detectedSoFar.length);
 
-      // Ping sound on newly discovered hazards
-      const hit = displayedHazards.find(h => Math.abs(h.bbox.y - progress) < 3);
-      if (hit) {
-        playSonarChime(1050);
-        setActiveBeamHazard(hit);
+      // Ping sound on every newly discovered hazard
+      const newHits = displayedHazards.filter(h => h.bbox.y <= progress && !scannedIds.has(h.id));
+      if (newHits.length > 0) {
+        newHits.forEach((h, idx) => {
+          scannedIds.add(h.id);
+          setTimeout(() => {
+            const tone = h.severity === 'CRITICAL' ? 'critical' :
+                         h.category.toLowerCase().includes('net') ? 'net' :
+                         h.category.toLowerCase().includes('pipe') ? 'pipe' : 'debris';
+            playSonarChime(tone);
+            setActiveBeamHazard(h);
+          }, idx * 65);
+        });
       }
 
       if (progress >= 100) {
         clearInterval(interval);
         setTimeout(() => {
           setIsAiScanRunning(false);
-          playSonarChime(1200);
-        }, 500);
+          playSonarChime('all-detected');
+        }, 450);
       }
     }, 45);
   };
@@ -521,7 +677,13 @@ export const SonarCanvasVisualizer: React.FC<SonarCanvasVisualizerProps> = ({
 
           {/* Audio Chime Toggle */}
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              if (next) {
+                setTimeout(() => playSonarChime(880), 50);
+              }
+            }}
             className="p-1 text-slate-400 hover:text-cyan-300 transition-colors bg-slate-900 border border-slate-800 rounded cursor-pointer"
             title={soundEnabled ? 'Mute Sonar Audio Ping' : 'Enable Sonar Audio Ping'}
           >

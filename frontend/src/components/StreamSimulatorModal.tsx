@@ -175,30 +175,55 @@ export const StreamSimulatorModal: React.FC<StreamSimulatorModalProps> = ({
     }
   ]);
 
-  // Play subtle synthetic sonar ping chirp
+  // Play synthetic sonar ping chirp
   const playSonarPing = useCallback((freq: number = 880) => {
     if (!audioEnabled) return;
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtxClass) {
+          audioCtxRef.current = new AudioCtxClass();
+        }
       }
       const ctx = audioCtxRef.current;
+      if (!ctx) return;
+
+      const trigger = () => {
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = freq >= 1000 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.35, now + 0.08);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.24, now + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.17);
+
+        // Subharmonic
+        const sub = ctx.createOscillator();
+        const subGain = ctx.createGain();
+        sub.type = 'sine';
+        sub.frequency.setValueAtTime(freq * 0.5, now);
+        subGain.gain.setValueAtTime(0.001, now);
+        subGain.gain.exponentialRampToValueAtTime(0.09, now + 0.02);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        sub.connect(subGain);
+        subGain.connect(ctx.destination);
+        sub.start(now);
+        sub.stop(now + 0.15);
+      };
+
       if (ctx.state === 'suspended') {
-        ctx.resume();
+        ctx.resume().then(trigger).catch(() => {});
+      } else {
+        trigger();
       }
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(freq / 2, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.13);
     } catch {
-      // Audio context might be restricted before user interaction
+      // Audio context might be restricted
     }
   }, [audioEnabled]);
 
@@ -348,7 +373,7 @@ export const StreamSimulatorModal: React.FC<StreamSimulatorModalProps> = ({
         ctx.fillText(`${style.icon} [${mat.toUpperCase()}] ${target.confidence}%`, targetPxX + 3, targetPxY - 3);
 
         // Real-time Detection Collision Check: sweep line intersects target
-        const isHit = Math.abs(sweepY - targetPxY) < 4;
+        const isHit = sweepY >= targetPxY - 2 && sweepY <= targetPxY + Math.max(16, targetPxH);
         if (isHit && !target.detected) {
           target.detected = true;
           setLastDetectedTarget(target);
